@@ -44,12 +44,34 @@ LOCAL char temp[10];
 LOCAL char hum[10];
 
 #if PLUG_DEVICE
+
+LOCAL int ICACHE_FLASH_ATTR
+plug_switch_on() {
+	INFO("BUTTON: Switch on\r\n");
+	GPIO_OUTPUT_SET(SWITCH_GPIO, SWITCH_INVERT ? 0 : 1);
+}
+
+LOCAL int ICACHE_FLASH_ATTR
+plug_switch_off() {
+	INFO("BUTTON: Switch off\r\n");
+	GPIO_OUTPUT_SET(SWITCH_GPIO, SWITCH_INVERT ? 1 : 0);
+}
+
+LOCAL unsigned char ICACHE_FLASH_ATTR
+plug_switch_state() {
+	return GPIO_REG_READ(BUTTON_GPIO) & BIT2;
+}
+
 LOCAL int ICACHE_FLASH_ATTR
 plug_json_get(struct jsontree_context *js_ctx)
 {
     const char *path = jsontree_path_name(js_ctx, js_ctx->depth - 1);
     if (os_strncmp(path, "switch", 6) == 0) {
-        jsontree_write_string(js_ctx, GPIO_REG_READ(BUTTON_GPIO) & BIT2 ? "on" : "off");
+    	if (SWITCH_INVERT) {
+    		jsontree_write_string(js_ctx, plug_switch_state() ? "off" : "on");
+    	} else {
+    		jsontree_write_string(js_ctx, plug_switch_state() ? "on" : "off");
+    	}
     }
     return 0;
 }
@@ -67,11 +89,9 @@ plug_json_set(struct jsontree_context *js_ctx, struct jsonparse_state *parser)
                 jsonparse_next(parser);
                 jsonparse_copy_value(parser, buffer, sizeof(buffer));
                 if (!strcoll(buffer, "on")) {
-                	INFO("JSON: Switch on\n", buffer);
-        			GPIO_OUTPUT_SET(SWITCH_GPIO, 1);
+                	plug_switch_on();
                 } else if (!strcoll(buffer, "off")) {
-                	INFO("JSON: Switch off\n", buffer);
-        			GPIO_OUTPUT_SET(SWITCH_GPIO, 0);
+                	plug_switch_off();
                 }
             }
         }
@@ -115,6 +135,21 @@ JSONTREE_OBJECT(envsensor_device_tree,
 				JSONTREE_PAIR("device", &envsensor_switch_tree));
 #endif
 
+#if PLUG_DEVICE
+
+void ICACHE_FLASH_ATTR
+plug_send_switch_state() {
+	char *json_buf = NULL;
+	json_buf = (char *)os_zalloc(jsonSize);
+	json_ws_send((struct jsontree_value *)&plug_device_tree, "device", json_buf);
+	INFO("BUTTON: Sending current switch status\r\n");
+	MQTT_Publish(&mqttClient, config.mqtt_topic, json_buf, strlen(json_buf), 0, 0);
+	os_free(json_buf);
+	json_buf = NULL;
+}
+
+#endif
+
 void ICACHE_FLASH_ATTR
 wifi_connect_cb(uint8_t status)
 {
@@ -132,6 +167,7 @@ mqtt_connected_cb(uint32_t *args)
 	INFO("MQTT: Connected\r\n");
 #if PLUG_DEVICE
 	MQTT_Subscribe(client, config.mqtt_topic, 0);
+	plug_send_switch_state();
 #endif
 }
 
@@ -178,6 +214,7 @@ mqtt_data_cb(uint32_t *args, const char* topic, uint32_t topic_len, const char *
 }
 
 #if PLUG_DEVICE
+
 void ICACHE_FLASH_ATTR
 plug_button_press() {
 	ETS_GPIO_INTR_DISABLE(); // Disable gpio interrupts
@@ -187,21 +224,13 @@ plug_button_press() {
 
 	// Button pressed, flip switch
 	if (GPIO_REG_READ(BUTTON_GPIO) & BIT2) {
-		INFO("BUTTON: Switch off\r\n");
-		GPIO_OUTPUT_SET(SWITCH_GPIO, 0);
+		plug_switch_off();
 	} else  {
-		INFO("BUTTON: Switch on\r\n");
-		GPIO_OUTPUT_SET(SWITCH_GPIO, 1);
+		plug_switch_on();
 	}
 
 	// Send new status to the MQTT broker
-	char *json_buf = NULL;
-	json_buf = (char *)os_zalloc(jsonSize);
-	json_ws_send((struct jsontree_value *)&plug_device_tree, "device", json_buf);
-	INFO("BUTTON: Sending current switch status\r\n");
-	MQTT_Publish(&mqttClient, config.mqtt_topic, json_buf, strlen(json_buf), 0, 0);
-	os_free(json_buf);
-	json_buf = NULL;
+	plug_send_switch_state();
 
 	// Debounce
 	os_delay_us(200000);
@@ -221,12 +250,14 @@ plug_gpio_init() {
 	GPIO_OUTPUT_SET(SWITCH_GPIO, 0);
 
 	// Configure push button
-	ETS_GPIO_INTR_DISABLE(); // Disable gpio interrupts
-	ETS_GPIO_INTR_ATTACH(plug_button_press, BUTTON_GPIO);  // GPIO0 interrupt handler
-	PIN_FUNC_SELECT(BUTTON_GPIO_MUX, BUTTON_GPIO_FUNC); // Set function
-	GPIO_DIS_OUTPUT(BUTTON_GPIO); // Set as input
-	gpio_pin_intr_state_set(GPIO_ID_PIN(BUTTON_GPIO), 2); // Interrupt on negative edge
-	ETS_GPIO_INTR_ENABLE(); // Enable gpio interrupts
+	if (BUTTON_CONNECTED) {
+		ETS_GPIO_INTR_DISABLE(); // Disable gpio interrupts
+		ETS_GPIO_INTR_ATTACH(plug_button_press, BUTTON_GPIO);  // GPIO0 interrupt handler
+		PIN_FUNC_SELECT(BUTTON_GPIO_MUX, BUTTON_GPIO_FUNC); // Set function
+		GPIO_DIS_OUTPUT(BUTTON_GPIO); // Set as input
+		gpio_pin_intr_state_set(GPIO_ID_PIN(BUTTON_GPIO), 2); // Interrupt on negative edge
+		ETS_GPIO_INTR_ENABLE(); // Enable gpio interrupts
+	}
 }
 #endif
 
@@ -296,6 +327,7 @@ user_init(void)
 
 #if PLUG_DEVICE
 	plug_gpio_init();
+	plug_switch_on();
 #endif
 
 #if ENVSENSOR_DEVICE

@@ -19,3 +19,8 @@ Optionally a push button can be connected meant to override messages from the MQ
 When the push button is pressed, the relay will change its state and a JSON message is sent to the MQTT server indicating its new state.
 
 The optional push button should be connected to ESP Pin GPIO0 and when the button is pressed, this pin should be grounded.
+
+### Putty
+
+To get putty to connect to the ESP8266 from the command line use:
+putty -serial -sercfg 115200,8,n,1,N COM3

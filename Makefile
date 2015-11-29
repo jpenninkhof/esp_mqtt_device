@@ -18,7 +18,7 @@ SDK_BASE	?= c:/Espressif/ESP8266_SDK
 # esptool path and port
 SDK_TOOLS	?= c:/Espressif/utils
 ESPTOOL		?= $(SDK_TOOLS)/esptool.exe
-ESPPORT		?= COM4
+ESPPORT		?= COM3	
 ESPBAUD		?= 115200
 
 # name for the target project
