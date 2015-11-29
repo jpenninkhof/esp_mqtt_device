@@ -7,8 +7,8 @@
 
 /*DEFAULT CONFIGURATIONS*/
 
-#define PLUG_DEVICE             0
-#define ENVSENSOR_DEVICE		1
+#define PLUG_DEVICE             1
+#define ENVSENSOR_DEVICE		0
 
 #define MQTT_HOST			"mqtt.yourdomain.com"
 #define MQTT_PORT			1883
